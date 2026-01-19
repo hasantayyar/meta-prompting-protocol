@@ -52,6 +52,13 @@ Open-world outputs (e.g., creative text) MAY not stabilize by simple diff; in
 those cases, QA SHOULD be evaluated inside the refinement loop, and the process
 SHOULD terminate on QA pass or max-iteration bounds.
 
+### **Stability Criterion**
+To make "stop changing materially" testable, a stable output is one that is identical
+after normalization for **N consecutive iterations** (RECOMMENDED N=2) and where
+the total iteration count does not exceed a max bound (RECOMMENDED max=5).
+Normalization SHOULD include stable key ordering, canonical number formatting, and
+whitespace trimming. Executors MAY terminate early on a passing QA verdict.
+
 ## **4. MPP Bundle Structure**
 
 An MPP-compliant bundle MUST be a JSON object containing the following three top-level keys:
@@ -78,7 +85,25 @@ processor_semantics, core_tag_library, then any optional ordered metadata
 (e.g., payload_order, processor_pipeline).
 
 JSON objects are unordered. If payload ordering matters, the derivative protocol
-SHOULD declare it explicitly (see 5.2).
+SHOULD declare it explicitly (see 5.2). Ordering is conceptual unless a
+canonical serialization is used. When enforceable ordering is required,
+implementations SHOULD serialize the payload as an array of `[tag, value]` pairs
+in `payload_order` and treat unordered objects as invalid.
+
+## **4.2 Conformance and Error Model**
+Executors SHOULD validate incoming bundles and return structured errors on failure.
+Implementations SHOULD emit errors in the following JSON shape:
+
+```json
+{
+  "error_code": "invalid_payload",
+  "message": "Missing required tag: $task",
+  "path": "derivative_protocol_payload.$task"
+}
+```
+
+Recommended `error_code` values: `invalid_bundle`, `invalid_spec`, `invalid_payload`,
+`unknown_tag`, `unknown_processor`, `schema_mismatch`.
 
 ## **5. Mandatory Components of a Derivative Specification**
 
@@ -146,6 +171,17 @@ Acceptable strategy labels (from https://www.promptingguide.ai/techniques) are:
 `automatic_prompt_engineer`, `active_prompt`, `directional_stimulus_prompting`,
 `program_aided_language_models`, `react`, `reflexion`, `multimodal_cot`,
 `graph_prompting`.
+
+### **5.4.1 Strategy Input Requirements**
+When a strategy label is used, the derivative protocol MUST declare and supply any
+required inputs for that strategy. Implementations SHOULD validate strategy inputs
+using a rule table (example):
+
+| Strategy | Required Tags |
+| --- | --- |
+| `few_shot` | `$examples` (non-empty array) |
+| `retrieval_augmented_generation` | `$tool_plan` or `$tool_inputs` |
+| `chain_of_thought` | `$reasoning_strategy` |
 
 ### **5.5 MCP Tooling (Optional)**
 Derivative protocols MAY declare an MCP tooling plan when the Executor must call
@@ -292,5 +328,66 @@ This example demonstrates the entire MPP flow.
       "type": "object"
     }
   }
+}
+```
+
+## **7. Formal Definitions and Compatibility**
+MPP uses [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) keywords (MUST, SHOULD, MAY) as normative requirements.
+
+### **7.1 Tag Definition Fields**
+`tag_definition_schema` is an ordered list of required fields. Implementations
+MAY accept additional fields, but extensions SHOULD be namespaced with `x_` to
+avoid collisions.
+
+### **7.2 Minimal JSON Schema (Reference)**
+The following JSON Schema is a reference for validation; implementations MAY
+extend it to enforce stricter rules.
+
+```json
+{
+  "type": "object",
+  "required": [
+    "meta_protocol_version",
+    "derivative_protocol_specification",
+    "derivative_protocol_payload"
+  ],
+  "properties": {
+    "meta_protocol_version": { "type": "string" },
+    "derivative_protocol_specification": {
+      "type": "object",
+      "required": [
+        "protocol_name",
+        "abstract",
+        "guiding_principles",
+        "tag_definition_schema",
+        "processor_semantics",
+        "core_tag_library"
+      ],
+      "properties": {
+        "protocol_name": { "type": "string" },
+        "protocol_version": { "type": "string" },
+        "abstract": { "type": "string" },
+        "guiding_principles": { "type": "object" },
+        "tag_definition_schema": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "processor_semantics": { "type": "object" },
+        "core_tag_library": { "type": "object" },
+        "payload_order": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "processor_pipeline": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "mcp_tooling": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "derivative_protocol_payload": { "type": "object" }
+  },
+  "additionalProperties": false
 }
 ```
